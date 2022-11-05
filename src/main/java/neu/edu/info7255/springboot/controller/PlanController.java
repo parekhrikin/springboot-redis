@@ -11,6 +11,8 @@ import neu.edu.info7255.springboot.repository.PlanDao;
 import org.everit.json.schema.Schema;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 
 import org.everit.json.schema.loader.SchemaLoader;
