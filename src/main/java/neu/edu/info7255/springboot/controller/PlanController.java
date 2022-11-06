@@ -5,19 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 //import neu.edu.info7255.springboot.entity.Plan;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.github.fge.jsonpatch.JsonPatch;
-import com.github.fge.jsonpatch.JsonPatchException;
 import neu.edu.info7255.springboot.repository.PlanDao;
 import org.everit.json.schema.Schema;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 
 import org.everit.json.schema.loader.SchemaLoader;
 
-import javax.json.JsonMergePatch;
 import java.io.IOException;
 import java.util.*;
 
@@ -153,12 +148,18 @@ public class PlanController {
 
     @GetMapping("/{id}")
     public JsonNode findPlan(@PathVariable String id){
+
         return dao.findPlanById(id);
     }
 
     @DeleteMapping("/{id}")
     public String remove(@PathVariable String id) {
         return dao.deletePlan(id);
+    }
+
+    @GetMapping("/token")
+    public UUID getToken(){
+        return UUID.randomUUID();
     }
 
 }
