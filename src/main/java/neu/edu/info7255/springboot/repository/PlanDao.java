@@ -49,6 +49,9 @@ public class PlanDao {
     }
 
     public String deletePlan(String id){
+
+
+
         template.opsForHash().delete(HASH_KEY, id);
         return "plan removed!";
     }
