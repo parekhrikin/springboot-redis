@@ -6,8 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import neu.edu.info7255.springboot.repository.PlanDao;
+import org.apache.coyote.Response;
 import org.everit.json.schema.Schema;
 import org.json.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -18,8 +21,8 @@ import org.springframework.web.bind.annotation.*;
 import org.everit.json.schema.loader.SchemaLoader;
 
 import java.io.IOException;
+import java.net.URI;
 import java.text.DateFormat;
-import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
@@ -46,9 +49,9 @@ public class PlanController {
 //            return ResponseEntity.ok(dao.save(schema));
 //        }
 
-        if (!authorize(headers)) {
-            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
-        }
+//        if (!authorize(headers)) {
+//            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
+//        }
 
         return ResponseEntity.ok(dao.save(schema));
 
@@ -66,9 +69,9 @@ public class PlanController {
 //            return ResponseEntity.ok(dao.save(plan));
 //        }
 
-        if (!authorize(headers)) {
-            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
-        }
+//        if (!authorize(headers)) {
+//            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
+//        }
 
         validatePayload(plan);
 
@@ -116,9 +119,9 @@ public class PlanController {
 //            return ResponseEntity.badRequest().body("not authorized");
 //        } else {
 
-        if (!authorize(headers)) {
-            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
-        }
+//        if (!authorize(headers)) {
+//            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
+//        }
 
         JsonNode updatedPlan = new ObjectMapper().readTree(patch);
         String objectId = updatedPlan.get("objectId").asText();
@@ -384,9 +387,9 @@ public class PlanController {
 //            return ResponseEntity.ok(dao.findAll());
 //        }
 
-        if (!authorize(headers)) {
-            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
-        }
+//        if (!authorize(headers)) {
+//            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
+//        }
 
         return ResponseEntity.ok(dao.findAll());
 
@@ -405,9 +408,9 @@ public class PlanController {
 //            return ResponseEntity.ok(dao.findPlanById(id));
 //        }
 
-        if (!authorize(headers)) {
-            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
-        }
+//        if (!authorize(headers)) {
+//            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
+//        }
 
         return ResponseEntity.ok(dao.findPlanById(id));
     }
@@ -423,13 +426,72 @@ public class PlanController {
 //            return ResponseEntity.ok(dao.deletePlan(id));
 //        }
 
-        if (!authorize(headers)) {
-            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
-        }
+//        if (!authorize(headers)) {
+//            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
+//        }
 
         return ResponseEntity.ok(dao.deletePlan(id));
 
     }
+
+
+    // Security
+
+    @PostMapping("/register/{clientType}")
+    public ResponseEntity register(@PathVariable String clientType) {
+
+        if(clientType.toLowerCase().equals("private")){
+
+            UUID clientId = UUID.randomUUID();
+
+            UUID clientSecret = UUID.randomUUID();
+
+            ResponseEntity.ok("Client ID: " + clientId + " Client Secret: " + clientSecret);
+        } else if(clientType.toLowerCase().equals("public")){
+
+            UUID clientId = UUID.randomUUID();
+
+            ResponseEntity.ok("Client ID: " + clientId);
+        }
+
+        return ResponseEntity.ok("Wrong client type. Enter either private or public.");
+    }
+
+
+    @RequestMapping(value="authorize", method = RequestMethod.POST)
+    public ResponseEntity authorize(@RequestParam("response_type") String responseType, @RequestParam("client_id") String clientId,
+                                    @RequestParam("redirect_uri") URI uri, @RequestParam("scope") String scope,
+                                    @RequestParam("code") String authCode, @RequestParam("code_challenge") String codeChallenge,
+                                    @RequestParam(value = "username", required = false) String username, @RequestParam(value = "password", required = false) String password) throws ParseException {
+
+//        JSONParser parser = new JSONParser();
+//        JSONObject json = (JSONObject) parser.parse(jsonString);
+
+        HttpHeaders headers = new HttpHeaders();
+
+        if(codeChallenge != null){
+
+//            headers.setLocation(uri);
+            headers.set("rikin", "parekh");
+
+            return ResponseEntity.status(302)
+                    .headers(headers)
+                    .body("authenticate please!");
+        } else {
+
+            if(username.equals("rikin") && password.equals("1234")){
+                headers.set("Authorization Code", "5/0AfgeXvvxB9ORgyVbx6hZ57z5xWQgLFvz6Xcr4zpc4Asto4FCRKzZ2yE_vPHT198PRWylEw");
+                headers.setLocation(URI.create("http://localhost:8080/token" + headers.get("Authorization Code")));
+                return ResponseEntity.status(302).headers(headers).body("authorization complete!");
+            }
+        }
+
+        return ResponseEntity.badRequest().body("Nothing");
+
+    }
+
+
+
 
 //    @GetMapping
 //    public String getToken(){
@@ -446,65 +508,65 @@ public class PlanController {
 //    }
 
 
-    @GetMapping("/token")
-    public ResponseEntity<String> generateToken(){
-
-        JSONObject jsonToken = new JSONObject();
-        jsonToken.put("issuer", "admin");
-        TimeZone timeZone = TimeZone.getTimeZone("UTC");
-
-        DateFormat ds = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:'Z'");
-        ds.setTimeZone(timeZone);
-
-        Calendar calendar = Calendar.getInstance();
-        calendar.setTime(new Date());
-        calendar.add(Calendar.SECOND, 60);
-        Date date = calendar.getTime();
-
-        jsonToken.put("expiry", ds.format(date));
-
-        return new ResponseEntity<String>(jsonToken.toString(), HttpStatus.ACCEPTED);
-    }
-
-    private boolean authorize(HttpHeaders headers) {
-        String token = headers.getFirst("Authorization");
-
-        System.out.println(headers.getFirst("Authorization"));
-        System.out.println(token.substring(7));
-
-        JSONObject jToken = new JSONObject(token.substring(7));
-
-        String dateAsString = jToken.get("expiry").toString();
-
-        Date currentDate = Calendar.getInstance().getTime();
-
-        TimeZone timeZone = TimeZone.getTimeZone("UTC");
-
-        DateFormat ds = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:'Z'");
-        ds.setTimeZone(timeZone);
-
-        Date ttlDate = null;
-
-        try {
-            ttlDate = ds.parse(dateAsString);
-        } catch (ParseException e) {
-            e.printStackTrace();
-        }
-
-        try {
-            currentDate = ds.parse(ds.format(currentDate));
-        } catch (ParseException e) {
-            e.printStackTrace();
-        }
-
-        if(currentDate.after(ttlDate)){
-            System.out.println("Expired TOKEN!!!!!!!!");
-            return false;
-        } else {
-            return true;
-        }
-
-    }
+//    @GetMapping("/token")
+//    public ResponseEntity<String> generateToken(){
+//
+//        JSONObject jsonToken = new JSONObject();
+//        jsonToken.put("issuer", "admin");
+//        TimeZone timeZone = TimeZone.getTimeZone("UTC");
+//
+//        DateFormat ds = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:'Z'");
+//        ds.setTimeZone(timeZone);
+//
+//        Calendar calendar = Calendar.getInstance();
+//        calendar.setTime(new Date());
+//        calendar.add(Calendar.SECOND, 60);
+//        Date date = calendar.getTime();
+//
+//        jsonToken.put("expiry", ds.format(date));
+//
+//        return new ResponseEntity<String>(jsonToken.toString(), HttpStatus.ACCEPTED);
+//    }
+//
+//    private boolean authorize(HttpHeaders headers) {
+//        String token = headers.getFirst("Authorization");
+//
+//        System.out.println(headers.getFirst("Authorization"));
+//        System.out.println(token.substring(7));
+//
+//        JSONObject jToken = new JSONObject(token.substring(7));
+//
+//        String dateAsString = jToken.get("expiry").toString();
+//
+//        Date currentDate = Calendar.getInstance().getTime();
+//
+//        TimeZone timeZone = TimeZone.getTimeZone("UTC");
+//
+//        DateFormat ds = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:'Z'");
+//        ds.setTimeZone(timeZone);
+//
+//        Date ttlDate = null;
+//
+//        try {
+//            ttlDate = ds.parse(dateAsString);
+//        } catch (ParseException e) {
+//            e.printStackTrace();
+//        }
+//
+//        try {
+//            currentDate = ds.parse(ds.format(currentDate));
+//        } catch (ParseException e) {
+//            e.printStackTrace();
+//        }
+//
+//        if(currentDate.after(ttlDate)){
+//            System.out.println("Expired TOKEN!!!!!!!!");
+//            return false;
+//        } else {
+//            return true;
+//        }
+//
+//    }
 
 
 }
