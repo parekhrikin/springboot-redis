@@ -6,25 +6,29 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import neu.edu.info7255.springboot.repository.PlanDao;
-import org.apache.coyote.Response;
 import org.everit.json.schema.Schema;
 import org.json.JSONObject;
-import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 //import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import org.everit.json.schema.loader.SchemaLoader;
+import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
 import java.net.URI;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
+
+import com.google.api.client.json.GenericJson;
+import com.google.api.services.oauth2.model.Userinfo;
 
 import static java.util.Currency.getInstance;
 
@@ -37,6 +41,9 @@ public class PlanController {
     private PlanDao dao;
     static ObjectMapper mapper = new ObjectMapper();
     static String jws;
+
+
+
 
     @PostMapping("/schema")
     public ResponseEntity saveSchema(@RequestBody JsonNode schema, @RequestHeader HttpHeaders headers){
@@ -58,7 +65,7 @@ public class PlanController {
     }
 
     @PostMapping("/plan")
-    public ResponseEntity save(@RequestBody JsonNode plan, @RequestHeader HttpHeaders headers) throws Exception {
+    public ResponseEntity save(@RequestBody JsonNode plan, @RequestHeader HttpHeaders requestHeaders) throws Exception {
 
 //        int pos = jws.indexOf(" ");
 
@@ -75,7 +82,19 @@ public class PlanController {
 
         validatePayload(plan);
 
-        return ResponseEntity.ok(dao.save(plan));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+            String etag = getETag(plan);
+            if (!verifyETag(plan, requestHeaders.getIfNoneMatch())) {
+                headers.setETag(etag);
+                return new ResponseEntity(plan, headers, HttpStatus.OK);
+            } else {
+                headers.setETag(etag);
+                return new ResponseEntity(headers, HttpStatus.NOT_MODIFIED);
+            }
+
+//        return ResponseEntity.ok(dao.save(plan));
 
     }
 
@@ -391,13 +410,39 @@ public class PlanController {
 //            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
 //        }
 
-        return ResponseEntity.ok(dao.findAll());
+        if(!validateToken(headers.get(HttpHeaders.AUTHORIZATION))){
+            return ResponseEntity.badRequest().body("Invalid Token!");
+        } else {
+            return ResponseEntity.ok(dao.findAll());
+        }
+
+
+//        return ResponseEntity.ok(dao.findAll());
+
+
+    }
+
+    private boolean validateToken(List<String> strings) {
+
+        String url = "https://openidconnect.googleapis.com/v1/userinfo?access_token=" + strings.get(0).substring(7);
+
+        RestTemplate restTemplate = new RestTemplate();
+
+        String userinfo = restTemplate.getForObject(url, String.class);
+
+        JSONObject uinfo = new JSONObject(userinfo);
+
+        if(uinfo.get("sub").equals("118303075942164372880")){
+            return true;
+        } else {
+            return false;
+        }
 
 
     }
 
     @GetMapping("/plan/{id}")
-    public ResponseEntity findPlan(@PathVariable String id, @RequestHeader HttpHeaders headers){
+    public ResponseEntity findPlan(@PathVariable String id, @RequestHeader HttpHeaders requestHeaders){
 
 //        String s = headers.get(HttpHeaders.AUTHORIZATION).get(0);
 //        int pos = s.indexOf(" ");
@@ -411,9 +456,53 @@ public class PlanController {
 //        if (!authorize(headers)) {
 //            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
 //        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
 
-        return ResponseEntity.ok(dao.findPlanById(id));
+        JsonNode plan = dao.findPlanById(id);
+
+//        if(plan != null){
+//            String etag = getETag(plan);
+//            if (!verifyETag(plan, requestHeaders.getIfNoneMatch())) {
+//                headers.setETag(etag);
+//                return new ResponseEntity(plan, headers, HttpStatus.OK);
+//            } else {
+//                headers.setETag(etag);
+//                return new ResponseEntity(headers, HttpStatus.NOT_MODIFIED);
+//            }
+//        }
+
+
+
+        return ResponseEntity.ok().body(plan);
+
+
     }
+
+
+        public String getETag(JsonNode json) {
+
+            String encoded=null;
+
+            try {
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] hash = digest.digest(json.toString().getBytes(StandardCharsets.UTF_8));
+                encoded = Base64.getEncoder().encodeToString(hash);
+            } catch (NoSuchAlgorithmException e) {
+                e.printStackTrace();
+            }
+
+            return "\""+encoded+"\"";
+        }
+
+        public boolean verifyETag(JsonNode json, List<String> etags) {
+            if(etags.isEmpty())
+                return false;
+            String encoded=getETag(json);
+            return etags.contains(encoded);
+
+        }
+
 
     @DeleteMapping("/plan/{id}")
     public ResponseEntity remove(@PathVariable String id, @RequestHeader HttpHeaders headers) {
@@ -446,12 +535,12 @@ public class PlanController {
 
             UUID clientSecret = UUID.randomUUID();
 
-            ResponseEntity.ok("Client ID: " + clientId + " Client Secret: " + clientSecret);
+            return ResponseEntity.ok("Client ID: " + clientId + " Client Secret: " + clientSecret);
         } else if(clientType.toLowerCase().equals("public")){
 
             UUID clientId = UUID.randomUUID();
 
-            ResponseEntity.ok("Client ID: " + clientId);
+            return ResponseEntity.ok("Client ID: " + clientId);
         }
 
         return ResponseEntity.ok("Wrong client type. Enter either private or public.");
