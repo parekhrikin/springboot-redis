@@ -5,25 +5,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 //import neu.edu.info7255.springboot.entity.Plan;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
 import neu.edu.info7255.springboot.repository.PlanDao;
-import org.apache.coyote.Response;
 import org.everit.json.schema.Schema;
 import org.json.JSONObject;
-import org.json.simple.parser.JSONParser;
-import org.json.simple.parser.ParseException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 //import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import org.everit.json.schema.loader.SchemaLoader;
+import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
-import java.net.URI;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import static java.util.Currency.getInstance;
@@ -38,8 +37,9 @@ public class PlanController {
     static ObjectMapper mapper = new ObjectMapper();
     static String jws;
 
+
     @PostMapping("/schema")
-    public ResponseEntity saveSchema(@RequestBody JsonNode schema, @RequestHeader HttpHeaders headers){
+    public ResponseEntity saveSchema(@RequestBody JsonNode schema, @RequestHeader HttpHeaders headers) {
 
 //        int pos = jws.indexOf(" ");
 //
@@ -53,12 +53,17 @@ public class PlanController {
 //            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
 //        }
 
-        return ResponseEntity.ok(dao.save(schema));
+        if (!validateToken(headers.get(HttpHeaders.AUTHORIZATION))) {
+            return ResponseEntity.badRequest().body("Invalid Token!");
+        } else {
+            return ResponseEntity.ok(dao.save(schema));
+        }
+
 
     }
 
     @PostMapping("/plan")
-    public ResponseEntity save(@RequestBody JsonNode plan, @RequestHeader HttpHeaders headers) throws Exception {
+    public ResponseEntity save(@RequestBody JsonNode plan, @RequestHeader HttpHeaders requestHeaders) throws Exception {
 
 //        int pos = jws.indexOf(" ");
 
@@ -73,9 +78,26 @@ public class PlanController {
 //            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
 //        }
 
-        validatePayload(plan);
+        if (!validateToken(requestHeaders.get(HttpHeaders.AUTHORIZATION))) {
+            return ResponseEntity.badRequest().body("Invalid Token!");
+        } else {
+            validatePayload(plan);
 
-        return ResponseEntity.ok(dao.save(plan));
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            String etag = getETag(plan);
+            if (!verifyETag(plan, requestHeaders.getIfNoneMatch())) {
+                headers.setETag(etag);
+                return new ResponseEntity(dao.save(plan), headers, HttpStatus.OK);
+            } else {
+                headers.setETag(etag);
+                return new ResponseEntity(headers, HttpStatus.NOT_MODIFIED);
+            }
+        }
+
+
+//        return ResponseEntity.ok(dao.save(plan));
 
     }
 
@@ -85,10 +107,10 @@ public class PlanController {
         JsonNode s = mapper.readTree(dao.getSchema());
 
 
-        try{
+        try {
             Schema schema = SchemaLoader.load(new JSONObject(s));
             schema.validate(new JSONObject(plan)); // throws a ValidationException if this object is invalid
-        } catch(Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
             System.out.println(e);
 
@@ -123,12 +145,16 @@ public class PlanController {
 //            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
 //        }
 
-        JsonNode updatedPlan = new ObjectMapper().readTree(patch);
-        String objectId = updatedPlan.get("objectId").asText();
-        JsonNode orignalPlan = dao.findPlanById(objectId);
-        applyUpdatedPlan(updatedPlan, orignalPlan);
-        dao.save(orignalPlan);
-        return ResponseEntity.ok(orignalPlan);
+        if (!validateToken(headers.get(HttpHeaders.AUTHORIZATION))) {
+            return ResponseEntity.badRequest().body("Invalid Token!");
+        } else {
+            JsonNode updatedPlan = new ObjectMapper().readTree(patch);
+            String objectId = updatedPlan.get("objectId").asText();
+            JsonNode orignalPlan = dao.findPlanById(objectId);
+            applyUpdatedPlan(updatedPlan, orignalPlan);
+            dao.save(orignalPlan);
+            return ResponseEntity.ok(orignalPlan);
+        }
 
 
 //            List<JsonNode> plansPatched = new ArrayList<>();
@@ -163,11 +189,10 @@ public class PlanController {
     }
 
     private void applyUpdatedPlan(JsonNode updatedPlan, JsonNode originalPlan) {
-        if (updatedPlan.equals(originalPlan)){
+        if (updatedPlan.equals(originalPlan)) {
             System.out.println("updated and orignal plan are same");
             return;
         }
-
 
 
         if (!updatedPlan.get("planCostShares").isNull()) {
@@ -189,25 +214,24 @@ public class PlanController {
 
 
         //LinkedPlanServices
-        for(JsonNode obj: updatedPlan.get("linkedPlanServices")){
+        for (JsonNode obj : updatedPlan.get("linkedPlanServices")) {
             addToOrignalPlanIfNeededLinkedPlanServices(obj, originalPlan);
         }
 
         Iterator<Map.Entry<String, JsonNode>> fields = updatedPlan.fields();
 
-        while(fields.hasNext()){
+        while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
-            switch(field.getKey()){
-                case "_org" :
-                case "objectId" :
-                case "objectType" :
-                case "planType" :
-                case "creationDate" :
+            switch (field.getKey()) {
+                case "_org":
+                case "objectId":
+                case "objectType":
+                case "planType":
+                case "creationDate":
                     ((ObjectNode) originalPlan).put(field.getKey(), field.getValue());
                     break;
             }
         }
-
 
 
     }
@@ -216,19 +240,19 @@ public class PlanController {
 
         boolean flag = false;
 
-        for(JsonNode org: originalPlan.get("linkedPlanServices")){
-            if(obj.get("objectId").asText().contains(org.get("objectId").asText())){
+        for (JsonNode org : originalPlan.get("linkedPlanServices")) {
+            if (obj.get("objectId").asText().contains(org.get("objectId").asText())) {
                 addToOriginalPlanIfNeededLinkedService(obj.get("linkedService"), org.get("linkedService"));
                 addToOriginalPlanIfNeededPlanServiceCostShares(obj.get("planserviceCostShares"), org.get("planserviceCostShares"));
 
                 Iterator<Map.Entry<String, JsonNode>> fields = obj.fields();
 
-                while(fields.hasNext()){
+                while (fields.hasNext()) {
                     Map.Entry<String, JsonNode> field = fields.next();
-                    switch(field.getKey()){
-                        case "_org" :
-                        case "objectId" :
-                        case "objectType" :
+                    switch (field.getKey()) {
+                        case "_org":
+                        case "objectId":
+                        case "objectType":
                             ((ObjectNode) org).put(field.getKey(), field.getValue());
                             break;
                     }
@@ -238,7 +262,7 @@ public class PlanController {
             }
         }
 
-        if(flag == false){
+        if (flag == false) {
             ((ArrayNode) originalPlan.get("linkedPlanServices")).add(obj);
         }
 
@@ -248,14 +272,14 @@ public class PlanController {
 
         Iterator<Map.Entry<String, JsonNode>> fields = obj.fields();
 
-        while(fields.hasNext()){
+        while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
             switch (field.getKey()) {
                 case "deductible":
-                case "_org" :
-                case "copay" :
-                case "objectId" :
-                case "objectType" :
+                case "_org":
+                case "copay":
+                case "objectId":
+                case "objectType":
                     ((ObjectNode) org).put(field.getKey(), field.getValue());
                     break;
             }
@@ -267,20 +291,19 @@ public class PlanController {
 
         Iterator<Map.Entry<String, JsonNode>> fields = obj.fields();
 
-        while(fields.hasNext()){
+        while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
             switch (field.getKey()) {
-                case "_org" :
-                case "objectId" :
-                case "objectType" :
-                case "name" :
+                case "_org":
+                case "objectId":
+                case "objectType":
+                case "name":
                     ((ObjectNode) org).put(field.getKey(), field.getValue());
                     break;
 
 
             }
         }
-
 
 
     }
@@ -290,11 +313,11 @@ public class PlanController {
 //        List<Map.Entry<String, JsonNode>> fieldsToAdd = new
 
         switch (field.getKey()) {
-            case "deductible" :
-            case "_org" :
-            case "copay" :
-            case "objectId" :
-            case "objectType" :
+            case "deductible":
+            case "_org":
+            case "copay":
+            case "objectId":
+            case "objectType":
                 ((ObjectNode) originalPlan.get("planCostShares")).put(field.getKey(), field.getValue());
                 break;
 
@@ -310,20 +333,20 @@ public class PlanController {
 
     public static JsonNode traverse(JsonNode patch, JsonNode root) {
 
-        if(root.isObject()){
+        if (root.isObject()) {
             Iterator<String> fieldNames = root.fieldNames();
 
-            while(fieldNames.hasNext()) {
+            while (fieldNames.hasNext()) {
                 String fieldName = fieldNames.next();
                 JsonNode fieldValue = root.get(fieldName);
-                if(fieldValue.isObject() && fieldValue.get("objectType").asText().equals(patch.get(fieldName).get("objectType"))){
+                if (fieldValue.isObject() && fieldValue.get("objectType").asText().equals(patch.get(fieldName).get("objectType"))) {
                     Iterator<Map.Entry<String, JsonNode>> fields = patch.fields();
-                    while(fields.hasNext()){
+                    while (fields.hasNext()) {
                         Map.Entry<String, JsonNode> field = fields.next();
-                        if(fieldValue.get(field.getKey()).isNull()){
+                        if (fieldValue.get(field.getKey()).isNull()) {
                             ((ObjectNode) root.get(fieldName)).put(field.getKey(), field.getValue());
                         } else {
-                            if(fieldValue.get(field.getKey()).equals(field.getValue())){
+                            if (fieldValue.get(field.getKey()).equals(field.getValue())) {
                                 continue;
                             } else {
                                 ((ObjectNode) root.get(fieldName)).put(field.getKey(), field.getValue());
@@ -341,7 +364,7 @@ public class PlanController {
 //                }
                 traverse(patch, fieldValue);
             }
-        } else if(root.isArray()){
+        } else if (root.isArray()) {
 //            ArrayNode arrayNode = (ArrayNode) root;
 //            for(int i = 0; i < arrayNode.size(); i++) {
 //                JsonNode arrayElement = arrayNode.get(i);
@@ -349,20 +372,20 @@ public class PlanController {
 //            }
             ArrayNode patchArray = (ArrayNode) patch.get("linkedPlanServices");
             boolean flag = false;
-            for(JsonNode o: patchArray){
+            for (JsonNode o : patchArray) {
 //                        Map.Entry<String, JsonNode> obj = objs.next();
-                for(JsonNode obj: root){
-                    if(o.get("objectId").equals(obj.get("objectId"))){
-                        if(obj.get("linkedService").get("objectId").equals(o.get("linkedService").get("objectId"))) {
+                for (JsonNode obj : root) {
+                    if (o.get("objectId").equals(obj.get("objectId"))) {
+                        if (obj.get("linkedService").get("objectId").equals(o.get("linkedService").get("objectId"))) {
                             traverse(o.get("linkedService"), obj.get("linkedService"));
-                        } else if(obj.get("planserviceCostShares").get("objectId").equals(o.get("planCostShares").get("objectId"))) {
+                        } else if (obj.get("planserviceCostShares").get("objectId").equals(o.get("planCostShares").get("objectId"))) {
                             traverse(o.get("planCostShares"), obj.get("planCostShares"));
                         }
                         flag = true;
                     }
 
                 }
-                if(flag == true){
+                if (flag == true) {
                     ((ArrayNode) root).add(o);
                     flag = false;
                 }
@@ -377,7 +400,7 @@ public class PlanController {
     }
 
     @GetMapping("/plan")
-    public ResponseEntity getAllPlans(@RequestHeader HttpHeaders headers){
+    public ResponseEntity getAllPlans(@RequestHeader HttpHeaders headers) {
 
 //        int pos = jws.indexOf(" ");
 //
@@ -391,13 +414,39 @@ public class PlanController {
 //            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
 //        }
 
-        return ResponseEntity.ok(dao.findAll());
+        if (!validateToken(headers.get(HttpHeaders.AUTHORIZATION))) {
+            return ResponseEntity.badRequest().body("Invalid Token!");
+        } else {
+            return ResponseEntity.ok(dao.findAll());
+        }
+
+
+//        return ResponseEntity.ok(dao.findAll());
+
+
+    }
+
+    private boolean validateToken(List<String> strings) {
+
+        String url = "https://openidconnect.googleapis.com/v1/userinfo?access_token=" + strings.get(0).substring(7);
+
+        RestTemplate restTemplate = new RestTemplate();
+
+        String userinfo = restTemplate.getForObject(url, String.class);
+
+        JSONObject uinfo = new JSONObject(userinfo);
+
+        if (uinfo.get("sub").equals("118303075942164372880")) {
+            return true;
+        } else {
+            return false;
+        }
 
 
     }
 
     @GetMapping("/plan/{id}")
-    public ResponseEntity findPlan(@PathVariable String id, @RequestHeader HttpHeaders headers){
+    public ResponseEntity findPlan(@PathVariable String id, @RequestHeader HttpHeaders requestHeaders) {
 
 //        String s = headers.get(HttpHeaders.AUTHORIZATION).get(0);
 //        int pos = s.indexOf(" ");
@@ -412,8 +461,52 @@ public class PlanController {
 //            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
 //        }
 
-        return ResponseEntity.ok(dao.findPlanById(id));
+        if (!validateToken(requestHeaders.get(HttpHeaders.AUTHORIZATION))) {
+            return ResponseEntity.badRequest().body("Invalid Token!");
+        } else {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            JsonNode plan = dao.findPlanById(id);
+
+//        if(plan != null){
+//            String etag = getETag(plan);
+//            if (!verifyETag(plan, requestHeaders.getIfNoneMatch())) {
+//                headers.setETag(etag);
+//                return new ResponseEntity(plan, headers, HttpStatus.OK);
+//            } else {
+//                headers.setETag(etag);
+//                return new ResponseEntity(headers, HttpStatus.NOT_MODIFIED);
+//            }
+//        }
+
+
+            return ResponseEntity.ok().body(plan);
+        }
+
+
     }
+
+
+    public String getETag(JsonNode json) {
+
+        // Used guava maven dependency here for hashing
+        String sha256hex = Hashing.sha256()
+                .hashString(json.toString(), StandardCharsets.UTF_8)
+                .toString();
+
+
+        return "W/" + sha256hex + "\"";
+    }
+
+    public boolean verifyETag(JsonNode json, List<String> etags) {
+        if (etags.isEmpty())
+            return false;
+        String hashed = getETag(json);
+        return etags.contains(hashed);
+
+    }
+
 
     @DeleteMapping("/plan/{id}")
     public ResponseEntity remove(@PathVariable String id, @RequestHeader HttpHeaders headers) {
@@ -430,7 +523,12 @@ public class PlanController {
 //            return (ResponseEntity) ResponseEntity.status(HttpStatus.UNAUTHORIZED);
 //        }
 
-        return ResponseEntity.ok(dao.deletePlan(id));
+        if (!validateToken(headers.get(HttpHeaders.AUTHORIZATION))) {
+            return ResponseEntity.badRequest().body("Invalid Token!");
+        } else {
+            return ResponseEntity.ok(dao.deletePlan(id));
+        }
+
 
     }
 
@@ -440,57 +538,55 @@ public class PlanController {
     @PostMapping("/register/{clientType}")
     public ResponseEntity register(@PathVariable String clientType) {
 
-        if(clientType.toLowerCase().equals("private")){
+        if (clientType.toLowerCase().equals("private")) {
 
             UUID clientId = UUID.randomUUID();
 
             UUID clientSecret = UUID.randomUUID();
 
-            ResponseEntity.ok("Client ID: " + clientId + " Client Secret: " + clientSecret);
-        } else if(clientType.toLowerCase().equals("public")){
+            return ResponseEntity.ok("Client ID: " + clientId + " Client Secret: " + clientSecret);
+        } else if (clientType.toLowerCase().equals("public")) {
 
             UUID clientId = UUID.randomUUID();
 
-            ResponseEntity.ok("Client ID: " + clientId);
+            return ResponseEntity.ok("Client ID: " + clientId);
         }
 
         return ResponseEntity.ok("Wrong client type. Enter either private or public.");
     }
 
 
-    @RequestMapping(value="authorize", method = RequestMethod.POST)
-    public ResponseEntity authorize(@RequestParam("response_type") String responseType, @RequestParam("client_id") String clientId,
-                                    @RequestParam("redirect_uri") URI uri, @RequestParam("scope") String scope,
-                                    @RequestParam("code") String authCode, @RequestParam("code_challenge") String codeChallenge,
-                                    @RequestParam(value = "username", required = false) String username, @RequestParam(value = "password", required = false) String password) throws ParseException {
-
-//        JSONParser parser = new JSONParser();
-//        JSONObject json = (JSONObject) parser.parse(jsonString);
-
-        HttpHeaders headers = new HttpHeaders();
-
-        if(codeChallenge != null){
-
-//            headers.setLocation(uri);
-            headers.set("rikin", "parekh");
-
-            return ResponseEntity.status(302)
-                    .headers(headers)
-                    .body("authenticate please!");
-        } else {
-
-            if(username.equals("rikin") && password.equals("1234")){
-                headers.set("Authorization Code", "5/0AfgeXvvxB9ORgyVbx6hZ57z5xWQgLFvz6Xcr4zpc4Asto4FCRKzZ2yE_vPHT198PRWylEw");
-                headers.setLocation(URI.create("http://localhost:8080/token" + headers.get("Authorization Code")));
-                return ResponseEntity.status(302).headers(headers).body("authorization complete!");
-            }
-        }
-
-        return ResponseEntity.badRequest().body("Nothing");
-
-    }
-
-
+//    @RequestMapping(value="authorize", method = RequestMethod.POST)
+//    public ResponseEntity authorize(@RequestParam("response_type") String responseType, @RequestParam("client_id") String clientId,
+//                                    @RequestParam("redirect_uri") URI uri, @RequestParam("scope") String scope,
+//                                    @RequestParam("code") String authCode, @RequestParam("code_challenge") String codeChallenge,
+//                                    @RequestParam(value = "username", required = false) String username, @RequestParam(value = "password", required = false) String password) throws ParseException {
+//
+////        JSONParser parser = new JSONParser();
+////        JSONObject json = (JSONObject) parser.parse(jsonString);
+//
+//        HttpHeaders headers = new HttpHeaders();
+//
+//        if(codeChallenge != null){
+//
+////            headers.setLocation(uri);
+//            headers.set("rikin", "parekh");
+//
+//            return ResponseEntity.status(302)
+//                    .headers(headers)
+//                    .body("authenticate please!");
+//        } else {
+//
+//            if(username.equals("rikin") && password.equals("1234")){
+//                headers.set("Authorization Code", "5/0AfgeXvvxB9ORgyVbx6hZ57z5xWQgLFvz6Xcr4zpc4Asto4FCRKzZ2yE_vPHT198PRWylEw");
+//                headers.setLocation(URI.create("http://localhost:8080/token" + headers.get("Authorization Code")));
+//                return ResponseEntity.status(302).headers(headers).body("authorization complete!");
+//            }
+//        }
+//
+//        return ResponseEntity.badRequest().body("Nothing");
+//
+//    }
 
 
 //    @GetMapping
