@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 
@@ -20,27 +21,31 @@ public class PlanDao {
     @Qualifier("redisTemplate")
     private RedisTemplate template;
 
-    public JsonNode save(JsonNode payload){
+    public JsonNode save(JsonNode payload) {
 
         //template.get
 
-        if(payload.get("$schema") != null){
+        if (payload.get("$schema") != null) {
             template.opsForHash().put("Schema", payload.get("type"), payload);
         } else {
             template.opsForHash().put(HASH_KEY, payload.get("objectId").toString(), payload);
+//            template.convertAndSend("http://localhost:9393/publish", payload);
+            RestTemplate restTemplate = new RestTemplate();
+
+            restTemplate.postForObject("http://localhost:9393/publish", payload, String.class);
         }
 
 
         return payload;
     }
 
-    public List<JsonNode> findAll(){
+    public List<JsonNode> findAll() {
         return template.opsForHash().values(HASH_KEY);
     }
 
-    public JsonNode findPlanById(String id){
+    public JsonNode findPlanById(String id) {
         List<JsonNode> plans = template.opsForHash().values(HASH_KEY);
-        for(JsonNode plan: plans) {
+        for (JsonNode plan : plans) {
             if (plan.get("objectId").asText().equals(id)) {
                 return plan;
             }
@@ -48,8 +53,7 @@ public class PlanDao {
         return null;
     }
 
-    public String deletePlan(String id){
-
+    public String deletePlan(String id) {
 
 
         template.opsForHash().delete(HASH_KEY, id);
