@@ -1,15 +1,24 @@
 package neu.edu.info7255.springboot.repository;
 
+
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 //import neu.edu.info7255.springboot.entity.Plan;
+import org.apache.http.HttpHost;
+
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Repository;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Repository
@@ -21,7 +30,11 @@ public class PlanDao {
     @Qualifier("redisTemplate")
     private RedisTemplate template;
 
-    public JsonNode save(JsonNode payload) {
+//    @Autowired
+//    @Qualifier("elasticsearchTemplate")
+//    private ElasticsearchOperations esOperations;
+
+    public JsonNode save(JsonNode payload) throws IOException {
 
         //template.get
 
@@ -30,9 +43,15 @@ public class PlanDao {
         } else {
             template.opsForHash().put(HASH_KEY, payload.get("objectId").toString(), payload);
 //            template.convertAndSend("http://localhost:9393/publish", payload);
-            RestTemplate restTemplate = new RestTemplate();
 
-            restTemplate.postForObject("http://localhost:9393/publish", payload, String.class);
+
+
+
+//            RestTemplate restTemplate = new RestTemplate();
+//            restTemplate.postForObject("http://localhost:9393/publish", payload, String.class);
+
+            RestTemplate restTemplate = new RestTemplate();
+            restTemplate.postForObject("http://localhost:8080/producer", payload, String.class);
         }
 
 

@@ -39,7 +39,7 @@ public class PlanController {
 
 
     @PostMapping("/schema")
-    public ResponseEntity saveSchema(@RequestBody JsonNode schema, @RequestHeader HttpHeaders headers) {
+    public ResponseEntity saveSchema(@RequestBody JsonNode schema, @RequestHeader HttpHeaders headers) throws IOException {
 
 //        int pos = jws.indexOf(" ");
 //
@@ -426,6 +426,11 @@ public class PlanController {
 
     }
 
+    @GetMapping("/plans")
+    public ResponseEntity getPlans() {
+        return ResponseEntity.ok(dao.findAll());
+    }
+
     private boolean validateToken(List<String> strings) {
 
         String url = "https://openidconnect.googleapis.com/v1/userinfo?access_token=" + strings.get(0).substring(7);
@@ -436,7 +441,7 @@ public class PlanController {
 
         JSONObject uinfo = new JSONObject(userinfo);
 
-        if (uinfo.get("sub").equals("118303075942164372880")) {
+        if (uinfo.get("sub").equals("108252667498100250743")) {
             return true;
         } else {
             return false;
